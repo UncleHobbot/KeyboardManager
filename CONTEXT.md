@@ -49,3 +49,11 @@ The data returned by an operation — what was done, whether a backup was taken,
 ## Orphaned substitute
 
 A **Substitutes** entry whose source id appears in no **Preload** key. Unlike an **Orphan** layout status (a dangling entry shown to the user), an orphaned substitute arises *as a consequence* of removing a layout: deleting a Preload slot can leave its matching Substitutes entry dangling. Removing a layout must also clean up the substitutes that would orphan as a result.
+
+## Resolution
+
+The act of computing, from the four raw registry maps, the complete set of layouts actually loaded in the system — including, for each layout, its sources, its canonical id (with the `d`-prefix stripped), and which substitute entries feed it. Resolution is the single rule that defines how ghost layouts exist: a Preload slot holds an id, and if that id is a key in Substitutes, the loaded layout is the substitute target. This rule lives in exactly one module — the **LayoutResolver** — so that a change to it is a one-file edit.
+
+## Resolved layout
+
+The result of **resolution** — one entry in the resolved snapshot: what is loaded (`LoadedLayoutId`), its canonical form (`CanonicalLayoutId`), its human-readable name, its **status** (Ghost / Declared / Orphan), and the list of registry **sources** that feed it, each carrying the raw id it held and (where applicable) the substitute target it mapped through. The resolved layout is the single type the UI binds to and the operation layer mutates — no projection layer between them.
