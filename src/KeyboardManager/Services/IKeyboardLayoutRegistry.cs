@@ -31,4 +31,26 @@ public interface IKeyboardLayoutRegistry
     /// encode the language id (e.g. 0419 → "Russian"). Returns null when unknown.
     /// </summary>
     string? GetLanguageName(string canonicalLayoutId);
+
+    /// <summary>
+    /// Deletes a single named value from a Preload key. Returns true if the value
+    /// existed and was removed.
+    /// </summary>
+    bool DeletePreloadValue(bool forDefaultHive, string valueName);
+
+    /// <summary>
+    /// Deletes a single named value from a Substitutes key.
+    /// </summary>
+    bool DeleteSubstituteValue(bool forDefaultHive, string valueName);
+
+    /// <summary>
+    /// Clears all values from a Preload key, then writes the supplied set
+    /// (value-name → layout-id). Used by Reset.
+    /// </summary>
+    void ReplacePreloadValues(bool forDefaultHive, IReadOnlyDictionary<string, string> values);
+
+    /// <summary>
+    /// Clears all values from a Substitutes key.
+    /// </summary>
+    void ClearSubstitutes(bool forDefaultHive);
 }

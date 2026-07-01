@@ -71,4 +71,50 @@ public sealed class WindowsKeyboardLayoutRegistry : IKeyboardLayoutRegistry
 
         return result;
     }
+
+    public bool DeletePreloadValue(bool forDefaultHive, string valueName)
+        => DeleteValue(forDefaultHive, PreloadSuffix, valueName);
+
+    public bool DeleteSubstituteValue(bool forDefaultHive, string valueName)
+        => DeleteValue(forDefaultHive, SubstitutesSuffix, valueName);
+
+    public void ReplacePreloadValues(bool forDefaultHive, IReadOnlyDictionary<string, string> values)
+    {
+        var (root, subKey) = ResolveKey(forDefaultHive, PreloadSuffix);
+        using var key = root.CreateSubKey(subKey, writable: true);
+
+        foreach (var name in key.GetValueNames().ToArray())
+            key.DeleteValue(name, throwOnMissingValue: false);
+
+        foreach (var (name, val) in values)
+            key.SetValue(name, val, RegistryValueKind.String);
+    }
+
+    public void ClearSubstitutes(bool forDefaultHive)
+    {
+        var (root, subKey) = ResolveKey(forDefaultHive, SubstitutesSuffix);
+        using var key = root.OpenSubKey(subKey, writable: true);
+        if (key is null) return;
+
+        foreach (var name in key.GetValueNames().ToArray())
+            key.DeleteValue(name, throwOnMissingValue: false);
+    }
+
+    private bool DeleteValue(bool forDefaultHive, string suffix, string valueName)
+    {
+        var (root, subKey) = ResolveKey(forDefaultHive, suffix);
+        using var key = root.OpenSubKey(subKey, writable: true);
+        if (key is null) return false;
+
+        if (key.GetValue(valueName) is null) return false;
+        key.DeleteValue(valueName, throwOnMissingValue: false);
+        return true;
+    }
+
+    private static (RegistryKey Root, string SubKey) ResolveKey(bool forDefaultHive, string suffix)
+    {
+        return forDefaultHive
+            ? (Registry.Users, @".DEFAULT\" + suffix)
+            : (Registry.CurrentUser, suffix);
+    }
 }

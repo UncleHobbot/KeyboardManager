@@ -3,8 +3,9 @@ using KeyboardManager.Services;
 namespace KeyboardManager.Tests;
 
 /// <summary>
-/// In-memory <see cref="IKeyboardLayoutRegistry"/> for unit tests. Models the exact
-/// ghost scenario observed on the developer's machine.
+/// In-memory <see cref="IKeyboardLayoutRegistry"/> for unit tests. Both reads and
+/// writes operate on the same dictionaries, so tests can assert on the resulting
+/// state after a mutation.
 /// </summary>
 internal sealed class FakeKeyboardLayoutRegistry : IKeyboardLayoutRegistry
 {
@@ -26,4 +27,26 @@ internal sealed class FakeKeyboardLayoutRegistry : IKeyboardLayoutRegistry
 
     public string? GetLanguageName(string canonicalLayoutId)
         => LanguageNames.TryGetValue(canonicalLayoutId, out var v) ? v : null;
+
+    public bool DeletePreloadValue(bool forDefaultHive, string valueName)
+        => PickPreload(forDefaultHive).Remove(valueName);
+
+    public bool DeleteSubstituteValue(bool forDefaultHive, string valueName)
+        => PickSubstitutes(forDefaultHive).Remove(valueName);
+
+    public void ReplacePreloadValues(bool forDefaultHive, IReadOnlyDictionary<string, string> values)
+    {
+        var dict = PickPreload(forDefaultHive);
+        dict.Clear();
+        foreach (var (k, v) in values) dict[k] = v;
+    }
+
+    public void ClearSubstitutes(bool forDefaultHive)
+        => PickSubstitutes(forDefaultHive).Clear();
+
+    private Dictionary<string, string> PickPreload(bool forDefaultHive)
+        => forDefaultHive ? DefaultPreload : HkcuPreload;
+
+    private Dictionary<string, string> PickSubstitutes(bool forDefaultHive)
+        => forDefaultHive ? DefaultSubstitutes : HkcuSubstitutes;
 }

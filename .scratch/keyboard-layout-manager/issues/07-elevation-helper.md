@@ -1,6 +1,6 @@
 # 07 — Elevation helper for .DEFAULT writes
 
-Status: ready-for-agent
+Status: done
 
 ## What
 
