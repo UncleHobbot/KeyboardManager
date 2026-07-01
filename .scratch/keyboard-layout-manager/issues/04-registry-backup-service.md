@@ -1,6 +1,6 @@
 # 04 — Registry backup service
 
-Status: ready-for-agent
+Status: done
 
 ## What
 
