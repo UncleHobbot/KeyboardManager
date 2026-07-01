@@ -37,3 +37,15 @@ The act of restoring the input configuration to a known-good minimal set — for
 ## Registry backup
 
 A saved copy (typically a `.reg` file) of the relevant keyboard-layout registry keys, taken before any destructive operation, so the prior state can be restored if something goes wrong.
+
+## Operation
+
+A user-initiated change to the input configuration — **Remove**, **Reset**, or **Backup**. An operation is a *sequence*: it takes a backup, performs the change, attempts to apply it to the running session, and reports what happened. The word distinguishes a multi-step mutation from a single registry write or a read of the current state.
+
+## Operation result
+
+The data returned by an operation — what was done, whether a backup was taken, whether a sign-out is recommended, what errors occurred, and a human-readable summary. The result is the single contract between the module that performs operations and the UI that renders them, and it is the test surface for the operation flows.
+
+## Orphaned substitute
+
+A **Substitutes** entry whose source id appears in no **Preload** key. Unlike an **Orphan** layout status (a dangling entry shown to the user), an orphaned substitute arises *as a consequence* of removing a layout: deleting a Preload slot can leave its matching Substitutes entry dangling. Removing a layout must also clean up the substitutes that would orphan as a result.
