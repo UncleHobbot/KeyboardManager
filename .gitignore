@@ -12,6 +12,9 @@ obj/
 *.vspx
 *.pubxml
 
+## JetBrains Rider
+.idea/
+
 ## Build results
 [Dd]ebug/
 [Rr]elease/
