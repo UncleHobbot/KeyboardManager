@@ -210,8 +210,33 @@ public partial class MainWindow : Window
 
     private void OnBackupNow(object sender, RoutedEventArgs e)
     {
-        // Filled by issue 08.
-        SetStatus("Backup is not implemented yet (issue 08).");
+        _vm.IsBusy = true;
+        BackupResult backup;
+        try
+        {
+            backup = _backup.BackupAll("manual");
+        }
+        catch (Exception ex)
+        {
+            _vm.IsBusy = false;
+            MessageBox.Show(this, $"Backup failed:\n\n{ex.Message}",
+                "Backup failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        finally
+        {
+            _vm.IsBusy = false;
+        }
+
+        var skippedNote = backup.SkippedKeys.Count > 0
+            ? $"\n\nSkipped {backup.SkippedKeys.Count} key(s):\n" + string.Join("\n", backup.SkippedKeys)
+            : string.Empty;
+
+        MessageBox.Show(this,
+            $"Backed up {backup.ExportedKeys.Count} key(s) to:\n{backup.Path}{skippedNote}",
+            "Backup complete", MessageBoxButton.OK, MessageBoxImage.Information);
+
+        SetStatus($"Backup written: {backup.Path}");
     }
 
     private void Refresh()

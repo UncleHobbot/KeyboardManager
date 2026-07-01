@@ -1,6 +1,6 @@
 # 08 — Manual backup action
 
-Status: ready-for-agent
+Status: done
 
 ## What
 
