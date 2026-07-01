@@ -2,6 +2,7 @@ using System.Windows;
 using KeyboardManager.Converters;
 using KeyboardManager.Models;
 using KeyboardManager.Services;
+using KeyboardManager.Services.Configuration;
 using KeyboardManager.Services.Elevation;
 using KeyboardManager.ViewModels;
 
@@ -18,20 +19,28 @@ public partial class MainWindow : Window
     private readonly LayoutRemovalService _removal;
     private readonly SessionLayoutApplier _applier;
     private readonly LayoutInspector _inspector;
+    private readonly LayoutResetService _reset;
+    private readonly KeyboardManagerConfig _config;
 
     public MainWindow()
     {
         var registry = new WindowsKeyboardLayoutRegistry();
         _inspector = new LayoutInspector(registry);
         _backup = new BackupService();
-        _removal = new LayoutRemovalService(registry, new ElevatedOperationRunner());
         _applier = new SessionLayoutApplier();
+        _removal = new LayoutRemovalService(registry, new ElevatedOperationRunner());
+        _config = KeyboardManagerConfig.Load();
+        _reset = new LayoutResetService(registry, _applier);
         _vm = new MainViewModel(_inspector);
 
         InitializeComponent();
         DataContext = _vm;
 
-        Loaded += (_, _) => Refresh();
+        Loaded += (_, _) =>
+        {
+            UpdateDefaultSetLabel();
+            Refresh();
+        };
     }
 
     private void OnRefresh(object sender, RoutedEventArgs e) => Refresh();
@@ -136,8 +145,67 @@ public partial class MainWindow : Window
 
     private void OnReset(object sender, RoutedEventArgs e)
     {
-        // Filled by issue 06.
-        SetStatus("Reset is not implemented yet (issue 06).");
+        var target = LayoutResetService.DescribeTarget(_config);
+        var source = _config.SourcePath is null
+            ? "built-in default (no config file found)"
+            : $"config: {_config.SourcePath}";
+
+        var msg = $"Reset HKCU to the default set?\n\n" +
+                  $"Target: {target}\n" +
+                  $"Source: {source}\n\n" +
+                  $"This clears HKCU\\Keyboard Layout\\Preload and Substitutes, then writes the defaults above.\n" +
+                  $".DEFAULT is NOT touched.\n\n" +
+                  $"A .reg backup is taken first.";
+        if (MessageBox.Show(this, msg, "Confirm reset",
+                MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
+            return;
+
+        _vm.IsBusy = true;
+        BackupResult? backup = null;
+        try
+        {
+            backup = _backup.BackupAll("reset");
+        }
+        catch (Exception ex)
+        {
+            _vm.IsBusy = false;
+            MessageBox.Show(this,
+                $"Backup failed — aborting. Nothing was changed.\n\n{ex.Message}",
+                "Backup failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        try
+        {
+            _reset.Reset(_config);
+        }
+        catch (Exception ex)
+        {
+            _vm.IsBusy = false;
+            MessageBox.Show(this,
+                $"Reset threw an exception. Backup: {backup.Path}\n\n{ex.Message}",
+                "Reset failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        _applier.BroadcastSettingsChange();
+        _vm.IsBusy = false;
+        Refresh();
+
+        MessageBox.Show(this,
+            $"HKCU reset to: {target}\n\n" +
+            $"Backup: {backup.Path}\n\n" +
+            $"Sign out and back in for the change to take full effect.",
+            "Reset complete", MessageBoxButton.OK, MessageBoxImage.Information);
+
+        SetStatus($"Reset to default. Backup: {backup.Path}");
+    }
+
+    private void UpdateDefaultSetLabel()
+    {
+        var target = LayoutResetService.DescribeTarget(_config);
+        var tag = _config.SourcePath is null ? "built-in" : "config";
+        DefaultSetText.Text = $"Reset target ({tag}): {target}";
     }
 
     private void OnBackupNow(object sender, RoutedEventArgs e)

@@ -74,6 +74,14 @@
             <Button Content="Backup now" Width="100" Margin="0,0,8,0" Click="OnBackupNow" />
         </StackPanel>
 
+        <!-- Default-set hint, shown next to the Reset target -->
+        <TextBlock Grid.Row="2"
+                   x:Name="DefaultSetText"
+                   HorizontalAlignment="Right"
+                   VerticalAlignment="Bottom"
+                   Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
+                   Text="Reset target: …" />
+
         <!-- Default-set hint + status bar -->
         <TextBlock Grid.Row="3"
                    x:Name="StatusText"

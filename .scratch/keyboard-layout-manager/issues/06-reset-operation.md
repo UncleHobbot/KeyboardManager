@@ -1,6 +1,6 @@
 # 06 — Reset operation
 
-Status: ready-for-agent
+Status: done
 
 ## What
 
