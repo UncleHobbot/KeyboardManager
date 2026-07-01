@@ -5,8 +5,10 @@ namespace KeyboardManager.Services;
 
 /// <summary>
 /// Computes and executes the removal of a layout from every registry source it
-/// lives in (FR-2). Splitting the plan from the execution lets the UI show a
-/// concrete confirmation dialog before anything is written.
+/// lives in (FR-2). The plan is now a pure projection over a
+/// <see cref="ResolvedLayout"/> snapshot — no registry re-read — and the execute
+/// step applies it through <see cref="IKeyboardLayoutRegistry"/> and
+/// <see cref="IElevatedOperationRunner"/>. See ADR-0003.
 /// </summary>
 public sealed class LayoutRemovalService
 {
@@ -20,51 +22,61 @@ public sealed class LayoutRemovalService
     }
 
     /// <summary>
-    /// Build the removal plan for a single selected layout: every value to delete,
-    /// grouped by whether it needs elevation (anything under .DEFAULT).
+    /// Build the removal plan for a resolved layout: every value to delete,
+    /// grouped by privilege. Pure projection over the snapshot — no registry read.
     /// </summary>
-    public RemovalPlan PlanRemoval(LayoutEntry entry)
+    public RemovalPlan PlanRemoval(ResolvedLayout entry)
     {
         var localDeletes = new List<RemovalTarget>();
         var elevatedDeletes = new List<RemovalTarget>();
-
-        // We need to re-read the live state to map back from source entries to the
-        // raw Preload/substitute values. A source entry's ValueName is exactly the
-        // registry value name to delete, but substitute entries are keyed by the
-        // source id, and a Preload slot holding a substituted id must also have its
-        // matching substitute entry cleaned up to avoid orphans.
-        var hkcuPreload = _registry.GetPreloadValues(forDefaultHive: false);
-        var defaultPreload = _registry.GetPreloadValues(forDefaultHive: true);
 
         foreach (var source in entry.Sources)
         {
             switch (source.Kind)
             {
                 case LayoutSourceKind.HkcuPreload:
-                    localDeletes.Add(new RemovalTarget(LayoutSourceKind.HkcuPreload, source.ValueName));
+                    localDeletes.Add(new RemovalTarget(LayoutSourceKind.HkcuPreload, source.SlotName));
+                    QueueOrphanedSubstitute(localDeletes, entry.Sources, source, LayoutSourceKind.HkcuSubstitutes);
                     break;
                 case LayoutSourceKind.DefaultPreload:
-                    elevatedDeletes.Add(new RemovalTarget(LayoutSourceKind.DefaultPreload, source.ValueName));
+                    elevatedDeletes.Add(new RemovalTarget(LayoutSourceKind.DefaultPreload, source.SlotName));
+                    QueueOrphanedSubstitute(elevatedDeletes, entry.Sources, source, LayoutSourceKind.DefaultSubstitutes);
                     break;
                 case LayoutSourceKind.HkcuSubstitutes:
-                    localDeletes.Add(new RemovalTarget(LayoutSourceKind.HkcuSubstitutes, source.ValueName));
+                    localDeletes.Add(new RemovalTarget(LayoutSourceKind.HkcuSubstitutes, source.SlotName));
                     break;
                 case LayoutSourceKind.DefaultSubstitutes:
-                    elevatedDeletes.Add(new RemovalTarget(LayoutSourceKind.DefaultSubstitutes, source.ValueName));
+                    elevatedDeletes.Add(new RemovalTarget(LayoutSourceKind.DefaultSubstitutes, source.SlotName));
                     break;
             }
         }
-
-        // After removing Preload slots, any substitute entry keyed by those slots'
-        // raw ids becomes a dangling orphan — clean those up too.
-        AddOrphanedSubstitutes(localDeletes, elevatedDeletes, hkcuPreload, defaultPreload, entry);
 
         return new RemovalPlan(entry, localDeletes, elevatedDeletes);
     }
 
     /// <summary>
+    /// When a Preload source is being removed, any substitute entry keyed by its
+    /// raw id would be orphaned — schedule it for deletion. Found by scanning the
+    /// snapshot's substitute sources, no registry read.
+    /// </summary>
+    private static void QueueOrphanedSubstitute(
+        List<RemovalTarget> deletes, IReadOnlyList<ResolvedSource> allSources,
+        ResolvedSource removedPreload, LayoutSourceKind subKind)
+    {
+        foreach (var s in allSources)
+        {
+            if (s.Kind == subKind
+                && string.Equals(s.SlotName, removedPreload.RawLayoutId, StringComparison.OrdinalIgnoreCase)
+                && !deletes.Any(d => d.Kind == subKind && string.Equals(d.ValueName, s.SlotName, StringComparison.OrdinalIgnoreCase)))
+            {
+                deletes.Add(new RemovalTarget(subKind, s.SlotName));
+            }
+        }
+    }
+
+    /// <summary>
     /// Execute the plan. HKCU writes happen inline; .DEFAULT writes go through the
-    /// elevation runner. Returns the combined result.
+    /// elevation runner.
     /// </summary>
     public RemovalResult Execute(RemovalPlan plan)
     {
@@ -108,36 +120,6 @@ public sealed class LayoutRemovalService
             _ => false
         };
     }
-
-    /// <summary>
-    /// Find substitute entries whose source id equals a Preload slot we're about to
-    /// remove, and queue them for deletion too (otherwise they become orphans).
-    /// </summary>
-    private static void AddOrphanedSubstitutes(
-        List<RemovalTarget> local, List<RemovalTarget> elevated,
-        IReadOnlyDictionary<string, string> hkcuPreload, IReadOnlyDictionary<string, string> defaultPreload,
-        LayoutEntry entry)
-    {
-        // For each removed Preload slot, look up its raw id; if that raw id is a key
-        // in the matching Substitutes map, schedule that substitute entry for removal.
-        foreach (var target in local.Where(t => t.Kind == LayoutSourceKind.HkcuPreload).ToList())
-        {
-            if (hkcuPreload.TryGetValue(target.ValueName, out var rawId))
-            {
-                if (!local.Any(t => t.Kind == LayoutSourceKind.HkcuSubstitutes && t.ValueName == rawId))
-                    local.Add(new RemovalTarget(LayoutSourceKind.HkcuSubstitutes, rawId));
-            }
-        }
-
-        foreach (var target in elevated.Where(t => t.Kind == LayoutSourceKind.DefaultPreload).ToList())
-        {
-            if (defaultPreload.TryGetValue(target.ValueName, out var rawId))
-            {
-                if (!elevated.Any(t => t.Kind == LayoutSourceKind.DefaultSubstitutes && t.ValueName == rawId))
-                    elevated.Add(new RemovalTarget(LayoutSourceKind.DefaultSubstitutes, rawId));
-            }
-        }
-    }
 }
 
 /// <summary>
@@ -149,14 +131,11 @@ public sealed record RemovalTarget(LayoutSourceKind Kind, string ValueName);
 /// The computed plan for removing a layout, split by privilege.
 /// </summary>
 public sealed record RemovalPlan(
-    LayoutEntry Entry,
+    ResolvedLayout Entry,
     IReadOnlyList<RemovalTarget> LocalDeletes,
     IReadOnlyList<RemovalTarget> ElevatedDeletes)
 {
-    /// <summary>Total number of values to delete across both groups.</summary>
     public int TotalDeletes => LocalDeletes.Count + ElevatedDeletes.Count;
-
-    /// <summary>True if any delete targets .DEFAULT (needs UAC).</summary>
     public bool NeedsElevation => ElevatedDeletes.Count > 0;
 }
 

@@ -65,23 +65,21 @@ public sealed class SourcesToTextConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        if (value is not IReadOnlyList<LayoutSourceEntry> sources || sources.Count == 0)
+        if (value is not IReadOnlyList<ResolvedSource> sources || sources.Count == 0)
             return "—";
 
-        return string.Join(", ", sources.Select(SourceLabel));
+        return string.Join(", ", sources.Select(s => SourceLabel(s.Kind, s.SlotName)));
     }
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
 
-    internal static string SourceLabel(LayoutSourceEntry s) => SourceLabel(s.Kind, s.ValueName);
-
-    internal static string SourceLabel(LayoutSourceKind kind, string valueName) => kind switch
+    internal static string SourceLabel(LayoutSourceKind kind, string slotName) => kind switch
     {
-        LayoutSourceKind.HkcuPreload => $"HKCU\\Preload#{valueName}",
-        LayoutSourceKind.HkcuSubstitutes => $"HKCU\\Substitutes#{valueName}",
-        LayoutSourceKind.DefaultPreload => $"HKU\\.DEFAULT\\Preload#{valueName}",
-        LayoutSourceKind.DefaultSubstitutes => $"HKU\\.DEFAULT\\Substitutes#{valueName}",
-        _ => valueName
+        LayoutSourceKind.HkcuPreload => $"HKCU\\Preload#{slotName}",
+        LayoutSourceKind.HkcuSubstitutes => $"HKCU\\Substitutes#{slotName}",
+        LayoutSourceKind.DefaultPreload => $"HKU\\.DEFAULT\\Preload#{slotName}",
+        LayoutSourceKind.DefaultSubstitutes => $"HKU\\.DEFAULT\\Substitutes#{slotName}",
+        _ => slotName
     };
 }

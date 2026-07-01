@@ -38,20 +38,18 @@ public sealed class SessionLayoutApplier : ISessionLayoutApplier
     private static extern IntPtr LoadKeyboardLayout(string pwszKLID, uint flags);
 
     /// <summary>
-    /// Attempt to evict a layout by id from the running session. Returns true if the
-    /// call to <c>UnloadKeyboardLayout</c> succeeded (which is necessary but not
-    /// sufficient for the layout to actually disappear).
+    /// Attempt to evict a layout by its canonical id from the running session.
+    /// The caller is responsible for passing an already-canonical id (the
+    /// <c>d</c>-prefix canonicalisation lives in <c>LayoutResolver</c> — ADR-0003).
+    /// Returns true if <c>UnloadKeyboardLayout</c> succeeded — necessary but not
+    /// sufficient for the layout to actually disappear.
     /// </summary>
-    public bool TryUnload(string layoutId)
+    public bool TryUnload(string canonicalLayoutId)
     {
-        var canonical = layoutId.Length == 8 && layoutId[0] == 'd'
-            ? "0000" + layoutId[4..]
-            : layoutId;
-
         // Loading then unloading by id is the common trick to obtain the HKL for a
         // layout id. UnloadKeyboardLayout requires the HKL of the LAST loaded
         // instance, so this pairs with that expectation on a best-effort basis.
-        var hkl = LoadKeyboardLayout(canonical, 0x00000001 /* KLF_ACTIVATE */);
+        var hkl = LoadKeyboardLayout(canonicalLayoutId, 0x00000001 /* KLF_ACTIVATE */);
         if (hkl == IntPtr.Zero) return false;
 
         var ok = UnloadKeyboardLayout(hkl);

@@ -35,11 +35,11 @@ public sealed class LayoutOperations
     /// first, then plans + executes the removal, then best-effort unloads it from
     /// the running session. Caller must have already confirmed with the user.
     /// </summary>
-    public OperationResult Remove(LayoutEntry entry)
+    public OperationResult Remove(ResolvedLayout entry)
     {
         var plan = _removal.PlanRemoval(entry);
 
-        var backup = TakeBackup($"remove-{entry.LayoutId}");
+        var backup = TakeBackup($"remove-{entry.LoadedLayoutId}");
         if (backup is null)
             return OperationResult.Failed(
                 "Backup failed — nothing was changed.",
@@ -59,7 +59,8 @@ public sealed class LayoutOperations
         }
 
         // Best-effort apply; failure here is not fatal (sign-out covers it).
-        _applier.TryUnload(entry.LayoutId);
+        // The resolver already canonicalised the id; the applier trusts its caller.
+        _applier.TryUnload(entry.CanonicalLayoutId);
 
         var notes = new List<string>();
         if (backup.SkippedKeys.Count > 0)

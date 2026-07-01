@@ -5,40 +5,42 @@ using KeyboardManager.Services.Elevation;
 namespace KeyboardManager.Tests;
 
 /// <summary>
-/// Tests <see cref="LayoutRemovalService.PlanRemoval"/> — the planning logic that
-/// decides what gets deleted. Execution (which shells out / elevates) is exercised
-/// only for the HKCU-only path here, against the fake registry.
+/// Tests <see cref="LayoutRemovalService.PlanRemoval"/> — now a pure projection
+/// over a <see cref="ResolvedLayout"/> snapshot (no registry re-read). Execution
+/// is exercised only for the HKCU-only path against the fake registry.
 /// </summary>
 public class LayoutRemovalServiceTests
 {
     /// <summary>
-    /// The canonical ghost on the developer's machine: Ukrainian is loaded via the
-    /// d0010419 substitute in .DEFAULT. Planning it must produce one elevated delete
-    /// for the .DEFAULT Preload slot AND the now-orphaned substitute entry.
+    /// The canonical ghost: Ukrainian loaded from .DEFAULT Preload#4 via a
+    /// d0010419 substitute. The plan must schedule the Preload slot AND the
+    /// orphaned substitute entry, derived purely from the snapshot.
     /// </summary>
     [Fact]
     public void PlanRemoval_GhostFromDefault_IncludesPreloadAndOrphanedSubstitute()
     {
-        var reg = new FakeKeyboardLayoutRegistry
-        {
-            HkcuPreload = { ["1"] = "00000419" },
-            DefaultPreload = { ["4"] = "d0010419" },
-            DefaultSubstitutes = { ["d0010419"] = "00000422" }
-        };
-
-        // Build a synthetic entry as the inspector would: Ukrainian loaded from
-        // .DEFAULT Preload#4 via the substitute.
-        var entry = new LayoutEntry("00000422", "Ukrainian — Ukrainian (00000422)",
-            LayoutStatus.Ghost,
-            new[] { new LayoutSourceEntry(LayoutSourceKind.DefaultPreload, "4") });
-
-        var elevation = new ElevatedOperationRunner("dummy.exe");
+        var reg = new FakeKeyboardLayoutRegistry();
+        var elevation = new FakeElevatedRunner();
         var svc = new LayoutRemovalService(reg, elevation);
+
+        // The snapshot the resolver would have produced:
+        var entry = new ResolvedLayout(
+            LoadedLayoutId: "00000422",
+            CanonicalLayoutId: "00000422",
+            DisplayName: "Ukrainian",
+            Status: LayoutStatus.Ghost,
+            Sources: new[]
+            {
+                // The Preload slot holding d0010419
+                new ResolvedSource(LayoutSourceKind.DefaultPreload, "4", "d0010419", "00000422", "00000422"),
+                // The substitute entry that would orphan after removing the slot
+                new ResolvedSource(LayoutSourceKind.DefaultSubstitutes, "d0010419", "d0010419", "00000422", "00000422")
+            });
+
         var plan = svc.PlanRemoval(entry);
 
         Assert.True(plan.NeedsElevation);
         Assert.Contains(plan.ElevatedDeletes, t => t.Kind == LayoutSourceKind.DefaultPreload && t.ValueName == "4");
-        // The substitute keyed by the removed Preload slot's raw id (d0010419) is orphaned.
         Assert.Contains(plan.ElevatedDeletes, t => t.Kind == LayoutSourceKind.DefaultSubstitutes && t.ValueName == "d0010419");
     }
 
@@ -48,16 +50,12 @@ public class LayoutRemovalServiceTests
     [Fact]
     public void PlanRemoval_HkcuOnlyLayout_DoesNotNeedElevation()
     {
-        var reg = new FakeKeyboardLayoutRegistry
-        {
-            HkcuPreload = { ["1"] = "00000419" }
-        };
+        var reg = new FakeKeyboardLayoutRegistry();
+        var svc = new LayoutRemovalService(reg, new FakeElevatedRunner());
 
-        var entry = new LayoutEntry("00000419", "Russian",
-            LayoutStatus.Declared,
-            new[] { new LayoutSourceEntry(LayoutSourceKind.HkcuPreload, "1") });
+        var entry = Res("00000419", LayoutStatus.Declared,
+            new ResolvedSource(LayoutSourceKind.HkcuPreload, "1", "00000419", "00000419", null));
 
-        var svc = new LayoutRemovalService(reg, new ElevatedOperationRunner("dummy.exe"));
         var plan = svc.PlanRemoval(entry);
 
         Assert.False(plan.NeedsElevation);
@@ -66,7 +64,7 @@ public class LayoutRemovalServiceTests
     }
 
     /// <summary>
-    /// Executing a HKCU-only plan actually mutates the fake registry.
+    /// Executing a HKCU-only plan mutates the fake registry.
     /// </summary>
     [Fact]
     public void Execute_HkcuOnlyPlan_RemovesFromFakeRegistry()
@@ -75,12 +73,11 @@ public class LayoutRemovalServiceTests
         {
             HkcuPreload = { ["1"] = "00000419" }
         };
+        var svc = new LayoutRemovalService(reg, new FakeElevatedRunner());
 
-        var entry = new LayoutEntry("00000419", "Russian",
-            LayoutStatus.Declared,
-            new[] { new LayoutSourceEntry(LayoutSourceKind.HkcuPreload, "1") });
+        var entry = Res("00000419", LayoutStatus.Declared,
+            new ResolvedSource(LayoutSourceKind.HkcuPreload, "1", "00000419", "00000419", null));
 
-        var svc = new LayoutRemovalService(reg, new ElevatedOperationRunner("dummy.exe"));
         var plan = svc.PlanRemoval(entry);
         var result = svc.Execute(plan);
 
@@ -89,31 +86,49 @@ public class LayoutRemovalServiceTests
     }
 
     /// <summary>
-    /// A layout loaded in both HKCU and .DEFAULT must be removed from both, and the
-    /// plan must need elevation.
+    /// A layout loaded in both HKCU and .DEFAULT must be removed from both.
     /// </summary>
     [Fact]
     public void PlanRemoval_AcrossBothHives_SplitsLocalAndElevated()
     {
-        var reg = new FakeKeyboardLayoutRegistry
-        {
-            HkcuPreload = { ["1"] = "00000419" },
-            DefaultPreload = { ["3"] = "00000419" }
-        };
+        var reg = new FakeKeyboardLayoutRegistry();
+        var svc = new LayoutRemovalService(reg, new FakeElevatedRunner());
 
-        var entry = new LayoutEntry("00000419", "Russian",
-            LayoutStatus.Declared,
-            new[]
-            {
-                new LayoutSourceEntry(LayoutSourceKind.HkcuPreload, "1"),
-                new LayoutSourceEntry(LayoutSourceKind.DefaultPreload, "3")
-            });
+        var entry = Res("00000419", LayoutStatus.Declared,
+            new ResolvedSource(LayoutSourceKind.HkcuPreload, "1", "00000419", "00000419", null),
+            new ResolvedSource(LayoutSourceKind.DefaultPreload, "3", "00000419", "00000419", null));
 
-        var svc = new LayoutRemovalService(reg, new ElevatedOperationRunner("dummy.exe"));
         var plan = svc.PlanRemoval(entry);
 
         Assert.True(plan.NeedsElevation);
         Assert.Contains(plan.LocalDeletes, t => t.Kind == LayoutSourceKind.HkcuPreload && t.ValueName == "1");
         Assert.Contains(plan.ElevatedDeletes, t => t.Kind == LayoutSourceKind.DefaultPreload && t.ValueName == "3");
     }
+
+    /// <summary>
+    /// Orphan cleanup derived purely from the snapshot: a Preload source whose
+    /// RawLayoutId matches a substitute source's SlotName schedules that substitute
+    /// for deletion — even when the substitute source wasn't explicitly in the entry.
+    /// </summary>
+    [Fact]
+    public void PlanRemoval_PreloadSlotOrphansMatchingSubstitute_FromSnapshot()
+    {
+        var reg = new FakeKeyboardLayoutRegistry();
+        var svc = new LayoutRemovalService(reg, new FakeElevatedRunner());
+
+        // HKCU Preload slot 2 holds raw id 00000499, which is substituted to 00000422.
+        // The snapshot carries both the Preload source and the Substitute source for the
+        // same resolved layout.
+        var entry = Res("00000422", LayoutStatus.Ghost,
+            new ResolvedSource(LayoutSourceKind.HkcuPreload, "2", "00000499", "00000422", "00000422"),
+            new ResolvedSource(LayoutSourceKind.HkcuSubstitutes, "00000499", "00000499", "00000422", "00000422"));
+
+        var plan = svc.PlanRemoval(entry);
+
+        Assert.Contains(plan.LocalDeletes, t => t.Kind == LayoutSourceKind.HkcuPreload && t.ValueName == "2");
+        Assert.Contains(plan.LocalDeletes, t => t.Kind == LayoutSourceKind.HkcuSubstitutes && t.ValueName == "00000499");
+    }
+
+    private static ResolvedLayout Res(string id, LayoutStatus status, params ResolvedSource[] sources)
+        => new(id, id, id, status, sources);
 }

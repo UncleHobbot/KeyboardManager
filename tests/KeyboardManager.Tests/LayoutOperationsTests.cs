@@ -47,7 +47,7 @@ public class LayoutOperationsTests
             runner.Result = new ElevatedResult(Applied: 2, Total: 2, Array.Empty<string>());
 
             var entry = MakeEntry("00000422", "Ukrainian", LayoutStatus.Ghost,
-                new LayoutSourceEntry(LayoutSourceKind.DefaultPreload, "4"));
+                (LayoutSourceKind.DefaultPreload, "4", "d0010419"));
 
             var result = ops.Remove(entry);
 
@@ -68,7 +68,7 @@ public class LayoutOperationsTests
         {
             reg.HkcuPreload["1"] = "00000409"; // only in HKCU → ghost if not declared via another path
             var entry = MakeEntry("00000409", "US", LayoutStatus.Declared,
-                new LayoutSourceEntry(LayoutSourceKind.HkcuPreload, "1"));
+                (LayoutSourceKind.HkcuPreload, "1", "00000409"));
 
             var result = ops.Remove(entry);
 
@@ -89,7 +89,7 @@ public class LayoutOperationsTests
             runner.Result = new ElevatedResult(0, 1, new[] { "UAC declined (1223)." });
 
             var entry = MakeEntry("00000409", "US", LayoutStatus.Ghost,
-                new LayoutSourceEntry(LayoutSourceKind.DefaultPreload, "1"));
+                (LayoutSourceKind.DefaultPreload, "1", "00000409"));
 
             var result = ops.Remove(entry);
 
@@ -109,7 +109,7 @@ public class LayoutOperationsTests
             runner.Result = new ElevatedResult(0, 0, Array.Empty<string>());
 
             var entry = MakeEntry("00000419", "Russian", LayoutStatus.Declared,
-                new LayoutSourceEntry(LayoutSourceKind.HkcuPreload, "1"));
+                (LayoutSourceKind.HkcuPreload, "1", "00000419"));
 
             ops.Remove(entry);
 
@@ -191,8 +191,9 @@ public class LayoutOperationsTests
     // Helpers
     // ───────────────────────────────────────────────────────────────────────
 
-    private static LayoutEntry MakeEntry(string id, string name, LayoutStatus status, params LayoutSourceEntry[] sources)
-        => new(id, name, status, sources);
+    private static ResolvedLayout MakeEntry(string id, string name, LayoutStatus status, params (LayoutSourceKind Kind, string Slot, string RawId)[] sources)
+        => new(id, id, name, status,
+            sources.Select(s => new ResolvedSource(s.Kind, s.Slot, s.RawId, id, ViaSubstitute: null)).ToList());
 
     private static void CleanDir(string dir)
     {

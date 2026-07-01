@@ -1,6 +1,6 @@
 # 10 — Concentrate the resolution model into LayoutResolver
 
-Status: ready-for-agent
+Status: done
 
 ## What
 

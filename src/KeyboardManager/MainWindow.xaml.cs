@@ -17,7 +17,6 @@ namespace KeyboardManager;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm;
-    private readonly LayoutInspector _inspector;
     private readonly LayoutOperations _operations;
     private readonly LayoutRemovalService _removal;
     private readonly KeyboardManagerConfig _config;
@@ -25,8 +24,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         var registry = new WindowsKeyboardLayoutRegistry();
+        var resolver = new LayoutResolver(registry);
         var applier = new SessionLayoutApplier();
-        _inspector = new LayoutInspector(registry);
         _removal = new LayoutRemovalService(registry, new ElevatedOperationRunner());
         _operations = new LayoutOperations(
             new BackupService(),
@@ -34,7 +33,7 @@ public partial class MainWindow : Window
             new LayoutResetService(registry, applier),
             applier);
         _config = KeyboardManagerConfig.Load();
-        _vm = new MainViewModel(_inspector);
+        _vm = new MainViewModel(resolver);
 
         InitializeComponent();
         DataContext = _vm;
@@ -157,7 +156,7 @@ public partial class MainWindow : Window
         SetStatus(r.Summary);
     }
 
-    private bool ConfirmRemoval(LayoutEntry entry, RemovalPlan plan)
+    private bool ConfirmRemoval(ResolvedLayout entry, RemovalPlan plan)
     {
         var lines = new List<string> { $"Delete '{entry.DisplayName}' from:" };
         foreach (var t in plan.LocalDeletes.Concat(plan.ElevatedDeletes))
