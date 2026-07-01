@@ -1,6 +1,6 @@
 # 05 — Remove operation (with confirmation + apply)
 
-Status: ready-for-agent
+Status: done
 
 ## What
 

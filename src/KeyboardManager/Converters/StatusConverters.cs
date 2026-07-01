@@ -71,15 +71,17 @@ public sealed class SourcesToTextConverter : IValueConverter
         return string.Join(", ", sources.Select(SourceLabel));
     }
 
-    private static string SourceLabel(LayoutSourceEntry s) => s.Kind switch
-    {
-        LayoutSourceKind.HkcuPreload => $"HKCU\\Preload#{s.ValueName}",
-        LayoutSourceKind.HkcuSubstitutes => $"HKCU\\Substitutes#{s.ValueName}",
-        LayoutSourceKind.DefaultPreload => $"HKU\\.DEFAULT\\Preload#{s.ValueName}",
-        LayoutSourceKind.DefaultSubstitutes => $"HKU\\.DEFAULT\\Substitutes#{s.ValueName}",
-        _ => s.ValueName
-    };
-
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
+
+    internal static string SourceLabel(LayoutSourceEntry s) => SourceLabel(s.Kind, s.ValueName);
+
+    internal static string SourceLabel(LayoutSourceKind kind, string valueName) => kind switch
+    {
+        LayoutSourceKind.HkcuPreload => $"HKCU\\Preload#{valueName}",
+        LayoutSourceKind.HkcuSubstitutes => $"HKCU\\Substitutes#{valueName}",
+        LayoutSourceKind.DefaultPreload => $"HKU\\.DEFAULT\\Preload#{valueName}",
+        LayoutSourceKind.DefaultSubstitutes => $"HKU\\.DEFAULT\\Substitutes#{valueName}",
+        _ => valueName
+    };
 }
