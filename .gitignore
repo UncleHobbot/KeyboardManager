@@ -1,0 +1,32 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+*.cache
+*.log
+
+## Visual Studio
+.vs/
+*.vspx
+*.pubxml
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+build/
+artifacts/
+
+## NuGet
+*.nupkg
+*.snupkg
+.nuget/
+
+## OS files
+Thumbs.db
+desktop.ini
+.DS_Store
