@@ -1,6 +1,6 @@
 # 02 — Layout inspection service
 
-Status: ready-for-agent
+Status: done
 
 ## What
 

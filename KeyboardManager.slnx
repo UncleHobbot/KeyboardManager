@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/KeyboardManager/KeyboardManager.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/KeyboardManager.Tests/KeyboardManager.Tests.csproj" />
+  </Folder>
 </Solution>
