@@ -1,6 +1,6 @@
 # 03 — Main window: flat layout list + actions
 
-Status: ready-for-agent
+Status: done
 
 ## What
 
