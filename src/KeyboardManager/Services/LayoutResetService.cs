@@ -15,9 +15,9 @@ namespace KeyboardManager.Services;
 public sealed class LayoutResetService
 {
     private readonly IKeyboardLayoutRegistry _registry;
-    private readonly SessionLayoutApplier _applier;
+    private readonly ISessionLayoutApplier _applier;
 
-    public LayoutResetService(IKeyboardLayoutRegistry registry, SessionLayoutApplier applier)
+    public LayoutResetService(IKeyboardLayoutRegistry registry, ISessionLayoutApplier applier)
     {
         _registry = registry;
         _applier = applier;

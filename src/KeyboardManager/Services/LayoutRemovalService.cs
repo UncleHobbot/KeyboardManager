@@ -11,9 +11,9 @@ namespace KeyboardManager.Services;
 public sealed class LayoutRemovalService
 {
     private readonly IKeyboardLayoutRegistry _registry;
-    private readonly ElevatedOperationRunner _elevation;
+    private readonly IElevatedOperationRunner _elevation;
 
-    public LayoutRemovalService(IKeyboardLayoutRegistry registry, ElevatedOperationRunner elevation)
+    public LayoutRemovalService(IKeyboardLayoutRegistry registry, IElevatedOperationRunner elevation)
     {
         _registry = registry;
         _elevation = elevation;

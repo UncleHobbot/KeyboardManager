@@ -14,7 +14,7 @@ namespace KeyboardManager.Services.Elevation;
 /// containing a single "declined" entry rather than throwing.
 /// </para>
 /// </summary>
-public sealed class ElevatedOperationRunner
+public sealed class ElevatedOperationRunner : IElevatedOperationRunner
 {
     /// <summary>
     /// The command-line flag that activates helper mode inside the same exe.

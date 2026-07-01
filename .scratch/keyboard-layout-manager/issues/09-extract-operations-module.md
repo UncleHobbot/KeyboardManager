@@ -1,6 +1,6 @@
 # 09 — Extract LayoutOperations module from MainWindow
 
-Status: ready-for-agent
+Status: done
 
 ## What
 

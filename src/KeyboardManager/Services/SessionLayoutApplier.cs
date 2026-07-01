@@ -13,7 +13,7 @@ namespace KeyboardManager.Services;
 /// is in use, or the call is not permitted), the caller should advise a sign-out.
 /// </para>
 /// </summary>
-public sealed class SessionLayoutApplier
+public sealed class SessionLayoutApplier : ISessionLayoutApplier
 {
     private const int WM_SETTINGCHANGE = 0x001A;
     private const int HWND_BROADCAST = 0xFFFF;

@@ -9,28 +9,31 @@ using KeyboardManager.ViewModels;
 namespace KeyboardManager;
 
 /// <summary>
-/// Interaction logic for MainWindow.xaml. Wires the <see cref="MainViewModel"/> to
-/// the controls and routes button clicks through the registry services.
+/// Interaction logic for MainWindow.xaml. The window holds UI state (selection,
+/// busy flag), asks the user for confirmation before destructive operations, and
+/// renders <see cref="OperationResult"/>s. The operation flows themselves live in
+/// <see cref="LayoutOperations"/> — see ADR-0002.
 /// </summary>
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm;
-    private readonly BackupService _backup;
-    private readonly LayoutRemovalService _removal;
-    private readonly SessionLayoutApplier _applier;
     private readonly LayoutInspector _inspector;
-    private readonly LayoutResetService _reset;
+    private readonly LayoutOperations _operations;
+    private readonly LayoutRemovalService _removal;
     private readonly KeyboardManagerConfig _config;
 
     public MainWindow()
     {
         var registry = new WindowsKeyboardLayoutRegistry();
+        var applier = new SessionLayoutApplier();
         _inspector = new LayoutInspector(registry);
-        _backup = new BackupService();
-        _applier = new SessionLayoutApplier();
         _removal = new LayoutRemovalService(registry, new ElevatedOperationRunner());
+        _operations = new LayoutOperations(
+            new BackupService(),
+            _removal,
+            new LayoutResetService(registry, applier),
+            applier);
         _config = KeyboardManagerConfig.Load();
-        _reset = new LayoutResetService(registry, _applier);
         _vm = new MainViewModel(_inspector);
 
         InitializeComponent();
@@ -54,6 +57,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Declared layouts are removable via Settings — warn before reaching for the registry.
         if (entry.Status == LayoutStatus.Declared)
         {
             var msg = $"'{entry.DisplayName}' is a Declared layout — Windows Settings can remove it.\n" +
@@ -63,66 +67,94 @@ public partial class MainWindow : Window
                 return;
         }
 
+        // Show the concrete targets and confirm.
         var plan = _removal.PlanRemoval(entry);
         if (!ConfirmRemoval(entry, plan))
             return;
 
-        // Layer 1: backup before touching anything.
+        RunOperation($"Remove '{entry.DisplayName}'", () => _operations.Remove(entry));
+    }
+
+    private void OnReset(object sender, RoutedEventArgs e)
+    {
+        var target = LayoutResetService.DescribeTarget(_config);
+        var source = _config.SourcePath is null
+            ? "built-in default (no config file found)"
+            : $"config: {_config.SourcePath}";
+
+        var msg = $"Reset HKCU to the default set?\n\n" +
+                  $"Target: {target}\n" +
+                  $"Source: {source}\n\n" +
+                  $"This clears HKCU\\Keyboard Layout\\Preload and Substitutes, then writes the defaults above.\n" +
+                  $".DEFAULT is NOT touched.\n\n" +
+                  $"A .reg backup is taken first.";
+        if (MessageBox.Show(this, msg, "Confirm reset",
+                MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
+            return;
+
+        RunOperation("Reset", () => _operations.Reset(_config));
+    }
+
+    private void OnBackupNow(object sender, RoutedEventArgs e)
+        => RunOperation("Backup", _operations.Backup);
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Helpers
+    // ───────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Toggle busy, run an operation, render its result. This is the single
+    /// place that touches <see cref="MainViewModel.IsBusy"/> and the single place
+    /// that turns an <see cref="OperationResult"/> into a dialog + status text.
+    /// </summary>
+    private void RunOperation(string label, Func<OperationResult> operation)
+    {
         _vm.IsBusy = true;
-        BackupResult? backup = null;
+        OperationResult result;
         try
         {
-            backup = _backup.BackupAll($"remove-{entry.LayoutId}");
+            result = operation();
         }
         catch (Exception ex)
         {
             _vm.IsBusy = false;
-            MessageBox.Show(this,
-                $"Backup failed — aborting. Nothing was changed.\n\n{ex.Message}",
-                "Backup failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, $"{label} threw an exception:\n\n{ex.Message}",
+                label, MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
-
-        // Layer 2: execute the deletion.
-        RemovalResult result;
-        try
-        {
-            result = _removal.Execute(plan);
-        }
-        catch (Exception ex)
+        finally
         {
             _vm.IsBusy = false;
-            MessageBox.Show(this,
-                $"Removal threw an exception. The backup is at:\n{backup.Path}\n\n{ex.Message}",
-                "Removal failed", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
         }
 
-        // Best-effort apply.
-        _applier.TryUnload(entry.LayoutId);
-
-        _vm.IsBusy = false;
+        RenderResult(label, result);
         Refresh();
+    }
 
-        // Layer 3: honest post-op guidance.
-        var signOutNote = plan.NeedsElevation
-            ? "\n\nSign out and back in for .DEFAULT-sourced ghosts to fully clear."
-            : string.Empty;
+    /// <summary>
+    /// Turn an <see cref="OperationResult"/> into a MessageBox + status-bar text.
+    /// The one and only place that maps result data to user-facing output.
+    /// </summary>
+    private void RenderResult(string label, OperationResult r)
+    {
+        var lines = new List<string> { r.Summary };
 
-        var backupNote = backup.SkippedKeys.Count > 0
-            ? $"\n\nNote: {backup.SkippedKeys.Count} key(s) were skipped during backup (likely .DEFAULT without elevation)."
-            : string.Empty;
+        if (r.BackupPath is not null)
+            lines.Add($"Backup: {r.BackupPath}");
 
-        var errorsNote = result.Errors.Count > 0
-            ? "\n\nErrors:\n" + string.Join("\n", result.Errors)
-            : string.Empty;
+        if (r.NeedsSignOut)
+            lines.Add("\nSign out and back in for the change to take full effect.");
 
-        MessageBox.Show(this,
-            $"Removed {result.Applied} of {result.Total} value(s).\n" +
-            $"Backup: {backup.Path}{signOutNote}{backupNote}{errorsNote}",
-            "Removal complete", MessageBoxButton.OK, MessageBoxImage.Information);
+        foreach (var note in r.Notes)
+            lines.Add($"\n{note}");
 
-        SetStatus($"Removed {result.Applied}/{result.Total} for '{entry.DisplayName}'. Backup: {backup.Path}");
+        if (r.Errors.Count > 0)
+            lines.Add("\nErrors:\n" + string.Join("\n", r.Errors));
+
+        var icon = r.Success ? MessageBoxImage.Information : MessageBoxImage.Warning;
+        MessageBox.Show(this, string.Join("\n", lines), label, MessageBoxButton.OK, icon);
+
+        SetStatus(r.Summary);
     }
 
     private bool ConfirmRemoval(LayoutEntry entry, RemovalPlan plan)
@@ -143,102 +175,6 @@ public partial class MainWindow : Window
             MessageBoxImage.Warning) == MessageBoxResult.OK;
     }
 
-    private void OnReset(object sender, RoutedEventArgs e)
-    {
-        var target = LayoutResetService.DescribeTarget(_config);
-        var source = _config.SourcePath is null
-            ? "built-in default (no config file found)"
-            : $"config: {_config.SourcePath}";
-
-        var msg = $"Reset HKCU to the default set?\n\n" +
-                  $"Target: {target}\n" +
-                  $"Source: {source}\n\n" +
-                  $"This clears HKCU\\Keyboard Layout\\Preload and Substitutes, then writes the defaults above.\n" +
-                  $".DEFAULT is NOT touched.\n\n" +
-                  $"A .reg backup is taken first.";
-        if (MessageBox.Show(this, msg, "Confirm reset",
-                MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
-            return;
-
-        _vm.IsBusy = true;
-        BackupResult? backup = null;
-        try
-        {
-            backup = _backup.BackupAll("reset");
-        }
-        catch (Exception ex)
-        {
-            _vm.IsBusy = false;
-            MessageBox.Show(this,
-                $"Backup failed — aborting. Nothing was changed.\n\n{ex.Message}",
-                "Backup failed", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        try
-        {
-            _reset.Reset(_config);
-        }
-        catch (Exception ex)
-        {
-            _vm.IsBusy = false;
-            MessageBox.Show(this,
-                $"Reset threw an exception. Backup: {backup.Path}\n\n{ex.Message}",
-                "Reset failed", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        _applier.BroadcastSettingsChange();
-        _vm.IsBusy = false;
-        Refresh();
-
-        MessageBox.Show(this,
-            $"HKCU reset to: {target}\n\n" +
-            $"Backup: {backup.Path}\n\n" +
-            $"Sign out and back in for the change to take full effect.",
-            "Reset complete", MessageBoxButton.OK, MessageBoxImage.Information);
-
-        SetStatus($"Reset to default. Backup: {backup.Path}");
-    }
-
-    private void UpdateDefaultSetLabel()
-    {
-        var target = LayoutResetService.DescribeTarget(_config);
-        var tag = _config.SourcePath is null ? "built-in" : "config";
-        DefaultSetText.Text = $"Reset target ({tag}): {target}";
-    }
-
-    private void OnBackupNow(object sender, RoutedEventArgs e)
-    {
-        _vm.IsBusy = true;
-        BackupResult backup;
-        try
-        {
-            backup = _backup.BackupAll("manual");
-        }
-        catch (Exception ex)
-        {
-            _vm.IsBusy = false;
-            MessageBox.Show(this, $"Backup failed:\n\n{ex.Message}",
-                "Backup failed", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-        finally
-        {
-            _vm.IsBusy = false;
-        }
-
-        var skippedNote = backup.SkippedKeys.Count > 0
-            ? $"\n\nSkipped {backup.SkippedKeys.Count} key(s):\n" + string.Join("\n", backup.SkippedKeys)
-            : string.Empty;
-
-        MessageBox.Show(this,
-            $"Backed up {backup.ExportedKeys.Count} key(s) to:\n{backup.Path}{skippedNote}",
-            "Backup complete", MessageBoxButton.OK, MessageBoxImage.Information);
-
-        SetStatus($"Backup written: {backup.Path}");
-    }
-
     private void Refresh()
     {
         _vm.IsBusy = true;
@@ -255,6 +191,13 @@ public partial class MainWindow : Window
         {
             _vm.IsBusy = false;
         }
+    }
+
+    private void UpdateDefaultSetLabel()
+    {
+        var target = LayoutResetService.DescribeTarget(_config);
+        var tag = _config.SourcePath is null ? "built-in" : "config";
+        DefaultSetText.Text = $"Reset target ({tag}): {target}";
     }
 
     private void SetStatus(string text) => StatusText.Text = text;
